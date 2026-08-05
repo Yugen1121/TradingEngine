@@ -11,7 +11,6 @@ Design:
 
 from datetime import datetime
 
-
 class Orders:
     """Details about a single order."""
 
@@ -58,7 +57,7 @@ class OrderQueue:
         self._size = 0
 
     def is_empty(self) -> bool:
-        return self._head is None          # bug fix: was self.head (wrong attr)
+        return self._head is None         
 
     def __len__(self):
         return self._size
@@ -71,10 +70,10 @@ class OrderQueue:
         x = self._head
         self._head = self._head._next
 
-        if self._head:                     # bug fix: was `if x._head` (attr didn't exist)
+        if self._head:
             self._head._prev = None
         else:
-            self._tail = None              # bug fix: tail wasn't reset when queue drains
+            self._tail = None 
 
         x._next = None
         x._prev = None
@@ -86,8 +85,8 @@ class OrderQueue:
             self._head = node
             self._tail = node
             self._size += 1
-            return                          # bug fix: previously fell through and
-                                             # crashed on self._tail.setNext(...) (tail was None)
+            return
+                  
 
         self._tail.setNext(node)
         node.setPrev(self._tail)
@@ -245,8 +244,8 @@ class OrderTree:
 class OrderBookManager:
     """Top-level registry: stock symbol -> {"buy": OrderTree, "sell": OrderTree}."""
 
-    def __init__(self):
-        self.books: dict[str, dict[str, OrderTree]] = {}
+    def __init__(self, book: dict[str, dict[str, OrderTree]] ):
+        self.books: dict[str, dict[str, OrderTree]] = book
 
     def _get_book(self, symbol: str) -> dict[str, OrderTree]:
         if symbol not in self.books:
