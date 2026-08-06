@@ -8,10 +8,12 @@ Design:
 - When a price level's queue empties, the node is deleted ("unloaded") from the tree.
 - A top-level dict maps stock symbol -> {"buy": OrderTree, "sell": OrderTree}.
 """
-
+from typing import TypeVar
 from datetime import datetime
 from enum import Enum
 
+X = TypeVar("X")
+Y = TypeVar("Y")
 
 class OrderStatus(Enum):
     NEW = "new"                        # resting, untouched
@@ -581,3 +583,67 @@ class OrderBookManager:
         if not book:
             return None
         return book["sell"].pop_best(best_is_min=True)    # lowest sell price
+
+
+class LinkedListNode[X]:
+    """ generic linked list node """
+    def __init__(self, val: X):
+        self._val = val
+        self._next = None
+
+    def getVal(self):
+        return self._val
+
+    def getNext(self):
+        return self._next
+
+    def setNext(self, node: LinkedListNode[X] | None):
+        self._next = node
+
+class LinkedList[X]:
+    """ generic linked list """
+    def __init__(self):
+        self._head: LinkedListNode[X] | None = None
+        self._tail: LinkedListNode[X] | None = None
+        self._length = 0
+
+    def pop(self):
+        if self._head is None:
+            return None
+        temp = self._head
+        self._head = self._head.getNext()
+        self._length -= 1
+        if self._head is None:
+            self._tail = None
+        return temp
+
+    def append(self, node: LinkedListNode[X]):
+        if self._tail:
+            self._tail.setNext(node)
+            self._tail = node
+        else:
+            self._head = node
+            self._tail = node
+
+        self._length += 1
+
+    def getLength(self) -> int:
+        return self._length
+
+class RequestQueueNode(LinkedListNode[Orders]):
+    """ queue for requests """
+    def __init__(self, val):
+        super().__init__(val)
+
+class RequestQueue(LinkedList[Orders]):
+    """ queue for requests """
+    def __init__(self):
+        super().__init__()
+
+    def enqueue(self, order: Orders):
+        """ creates a queue and appends the order to the queue """
+        self.append(RequestQueueNode(order))
+
+    def dequeue(self) -> Orders | None:
+        node = self.pop()
+        return node.getVal() if node else None
