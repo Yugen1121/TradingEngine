@@ -8,9 +8,11 @@ Design:
 - When a price level's queue empties, the node is deleted ("unloaded") from the tree.
 - A top-level dict maps stock symbol -> {"buy": OrderTree, "sell": OrderTree}.
 """
+from __future__ import annotations
 from typing import TypeVar
 from datetime import datetime
 from enum import Enum
+
 
 X = TypeVar("X")
 Y = TypeVar("Y")
@@ -46,8 +48,8 @@ class Orders:
         self.time = datetime.now()
 
     def __repr__(self):
-        return (f"Order(id={self._id}, {self._type} {self._quantity}/"
-                f"{self.original_quantity}@{self._price}, {self.status.value})")
+        return (f"Order(id={self._id}, {self._type} {self._quantity} " +
+                f"{self.original_quantity}@{self._price}, {self.status.value}, {self.order_type})")
 
 
 class OrderQueueNode:
@@ -411,10 +413,9 @@ class OrderTree:
 class OrderBookManager:
     """Top-level registry: stock symbol -> {"buy": OrderTree, "sell": OrderTree}."""
 
-    def __init__(self, book: dict[str, dict[str, OrderTree]],price_band_pct: float = 10.0):
+    def __init__(self, book: dict[str, dict[str, OrderTree]]):
         self.books: dict[str, dict[str, OrderTree]] = book
         self.last_trade_price: dict[str, float] = {}
-        self.price_band_pct = price_band_pct     # reject orders more than this % from reference
         self._resting_index: dict[int, dict] = {}  # order_id -> {symbol, side, price, qnode, order}
         self._listeners = []                        # callbacks: fn(order, event, detail)
 
@@ -448,12 +449,6 @@ class OrderBookManager:
                 return best_ask.key
         return None   # no reference yet (first order for this symbol) -> nothing to check against
 
-    def _within_price_band(self, order: Orders) -> bool:
-        ref = self._reference_price(order._stock)
-        if ref is None:
-            return True
-        deviation_pct = abs(order._price - ref) / ref * 100
-        return deviation_pct <= self.price_band_pct
 
     # ---- submission ----
     def submit(self, order: Orders) -> list[dict]:
@@ -462,16 +457,8 @@ class OrderBookManager:
         Every fill fires a notification the instant it happens; nothing is held back
         until the whole order finishes (it might never fully finish for a GTC order).
         """
-        if not self._within_price_band(order):
-            order.status = OrderStatus.REJECTED
-            ref = self._reference_price(order._stock)
-            self._notify(order, "rejected", {
-                "reason": "price_band",
-                "reference_price": ref,
-                "order_price": order._price,
-                "band_pct": self.price_band_pct,
-            })
-            return []
+        
+
 
         if order.order_type == OrderType.FOK:
             book = self._get_book(order._stock)
@@ -482,9 +469,9 @@ class OrderBookManager:
                 return []
 
         trades = self._match(order)
-
         if order._quantity == 0:
             order.status = OrderStatus.FILLED
+            self._notify(order, "completed", {"messge": "Trade complete"})
             return trades
 
         # something is left unmatched
@@ -502,7 +489,6 @@ class OrderBookManager:
             order._quantity = 0
             order.status = OrderStatus.PARTIALLY_FILLED if trades else OrderStatus.CANCELLED
             self._notify(order, "ioc_remainder_cancelled", {"cancelled_quantity": leftover})
-
         return trades
 
     def _match(self, order: Orders) -> list[dict]:
@@ -531,7 +517,6 @@ class OrderBookManager:
             resting_order = resting_qnode._order
             fill_qty = min(order._quantity, resting_order._quantity)
             fill_price = level.key
-
             trade = {
                 "price": fill_price,
                 "quantity": fill_qty,
@@ -543,7 +528,7 @@ class OrderBookManager:
 
             order._quantity -= fill_qty
             resting_order._quantity -= fill_qty
-            level.queue.adjust_total(-fill_qty)          # keep this level's cached total in sync
+            level.queue.adjust_total(-fill_qty)
             opposite_tree.refresh_quantity(level.key)    # propagate the change up the tree
 
             # notify BOTH sides right now -- this fill is final, don't wait for the
@@ -553,11 +538,13 @@ class OrderBookManager:
             self._notify(order, "fill", trade)
             self._notify(resting_order, "fill", trade)
 
+            if resting_order._quantity - order._quantity <= 0:
+                self._notify(resting_order, "completed", {"message": "Order completed"})
+
             if resting_order._quantity == 0:
                 level.queue.pop()
                 opposite_tree.unload_if_empty(level.key)
                 self._resting_index.pop(resting_order._id, None)
-
         return trades
 
     # ---- cancellation ----
