@@ -13,6 +13,7 @@ async def run_benchmark(total_orders=1000):
         for i in range(total_orders):
             payload = {
                 "route": "/orders",
+                "user_id": 1,
                 "payload": {
                     "id": i,
                     "user_id": 45,
