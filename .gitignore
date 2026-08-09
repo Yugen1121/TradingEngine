@@ -1,0 +1,4 @@
+__pycache__/*
+myVenv/*
+*.pyc
+__init__*
