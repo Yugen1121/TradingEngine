@@ -1,11 +1,9 @@
 """
 This files dontains the databaseModels
 """
-
-import asyncio
 import enum
-from sqlalchemy import create_engine, ForeignKey, Enum
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column, DeclarativeBase
+from sqlalchemy import ForeignKey, Enum, CheckConstraint
+from sqlalchemy.orm import relationship, Mapped, mapped_column, DeclarativeBase
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
@@ -20,11 +18,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(nullable=False)
+    email: Mapped[str] = mapped_column(nullable=False, unique=True)
     password: Mapped[str] = mapped_column()
 
     orders = relationship("Order", back_populates="owner")
     owned = relationship("OwnedStock", back_populates="owner")
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -71,4 +70,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with Session() as session:
         yield session
 
-asyncio.run(init_db())
