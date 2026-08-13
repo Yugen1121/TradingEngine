@@ -1,7 +1,7 @@
 from Models.model import OrderTree, OrderBookManager, Orders
 from fastapi import WebSocket, WebSocketDisconnect
 import json
-
+from Models.model import OrderBookManager
 
 class APIGateway:
     """
@@ -33,11 +33,9 @@ class APIGateway:
         self._order_book_manager.on_event(self._gateway_dispatch)
 
     async def printD(self, payload):
-        print(self._order_book.keys())
-
         return {
             "status": "success",
-            "books": list(self._order_book.keys())
+            "books": json.dumps([(i, self._order_book[i].get("name", "")) for i in self._order_book])
         }
 
     def _register_user(
@@ -66,7 +64,6 @@ class APIGateway:
         event,
         detail
     ) -> None:
-
         conns = self._users.get(order._user_id)
 
         if not conns:
@@ -164,3 +161,4 @@ class APIGateway:
                 user_id,
                 websocket
             )
+
