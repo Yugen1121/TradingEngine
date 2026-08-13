@@ -8,7 +8,7 @@ from datetime import time, timedelta, datetime, timezone
 
 TIME_DELTA = 7
 ALGORITHM = "HS256"
-JWT_SECRET = os.getenv("JWT_SECRET", "SECRET")
+JWT_SECRET = "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
 
 class Authorization():
     """
@@ -35,7 +35,7 @@ class Authorization():
         expire_time = datetime.now(timezone.utc) + timedelta(days=TIME_DELTA) 
 
         to_encode = {
-            "sub": user_id,
+            "sub": str(user_id),
             "exp": expire_time
         }
 
