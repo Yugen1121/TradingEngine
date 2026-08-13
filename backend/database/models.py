@@ -1,6 +1,7 @@
 """
 This files dontains the databaseModels
 """
+import asyncio
 import enum
 from sqlalchemy import ForeignKey, Enum, CheckConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column, DeclarativeBase
@@ -40,7 +41,9 @@ class Order(Base):
 class Stock(Base):
     __tablename__ = "stocks"
 
-    name: Mapped[str] = mapped_column(unique=True, primary_key=True)
+    symbol: Mapped[str] = mapped_column(unique=True, primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    initial_listing: Mapped[float] = mapped_column(nullable=False)
 
 class TradeType(Base):
     __tablename__ = "tradeTypes"
@@ -70,3 +73,5 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with Session() as session:
         yield session
 
+if __name__ == "__main__":
+    asyncio.run(init_db())
