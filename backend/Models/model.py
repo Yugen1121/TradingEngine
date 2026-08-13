@@ -409,10 +409,8 @@ class OrderTree:
             return []
         return self.inorder(root.left) + [root.key] + self.inorder(root.right)
 
-
 class OrderBookManager:
     """Top-level registry: stock symbol -> {"buy": OrderTree, "sell": OrderTree}."""
-
     def __init__(self, book: dict[str, dict[str, OrderTree]]):
         self.books: dict[str, dict[str, OrderTree]] = book
         self.last_trade_price: dict[str, float] = {}
@@ -424,9 +422,9 @@ class OrderBookManager:
         Fired synchronously the instant each fill/reject/cancel happens -- never batched."""
         self._listeners.append(callback)
 
-    def _notify(self, order: Orders, event: str, detail: dict) -> None:
+    async def _notify(self, order: Orders, event: str, detail: dict) -> None:
         for cb in self._listeners:
-            cb(order, event, detail)
+            await cb(order, event, detail)
 
     def _get_book(self, symbol: str) -> dict[str, OrderTree]:
         if symbol not in self.books:
@@ -448,30 +446,27 @@ class OrderBookManager:
             if best_ask:
                 return best_ask.key
         return None   # no reference yet (first order for this symbol) -> nothing to check against
-
-
+ 
     # ---- submission ----
-    def submit(self, order: Orders) -> list[dict]:
+    async def submit(self, order: Orders) -> list[dict]:
         """
         Pre-trade check -> match -> handle remainder per order_type.
         Every fill fires a notification the instant it happens; nothing is held back
         until the whole order finishes (it might never fully finish for a GTC order).
         """
-        
-
-
+ 
         if order.order_type == OrderType.FOK:
             book = self._get_book(order._stock)
             opposite_tree = book["sell" if order._type == "buy" else "buy"]
             if opposite_tree.matchable_quantity(order) < order._quantity:
                 order.status = OrderStatus.REJECTED
-                self._notify(order, "rejected", {"reason": "fok_insufficient_liquidity"})
+                await self._notify(order, "rejected", {"reason": "fok_insufficient_liquidity"})
                 return []
 
-        trades = self._match(order)
+        trades = await self._match(order)
         if order._quantity == 0:
             order.status = OrderStatus.FILLED
-            self._notify(order, "completed", {"messge": "Trade complete"})
+            await self._notify(order, "completed", {"messge": "Trade complete"})
             return trades
 
         # something is left unmatched
@@ -488,10 +483,10 @@ class OrderBookManager:
             leftover = order._quantity
             order._quantity = 0
             order.status = OrderStatus.PARTIALLY_FILLED if trades else OrderStatus.CANCELLED
-            self._notify(order, "ioc_remainder_cancelled", {"cancelled_quantity": leftover})
+            await self._notify(order, "ioc_remainder_cancelled", {"cancelled_quantity": leftover})
         return trades
 
-    def _match(self, order: Orders) -> list[dict]:
+    async def _match(self, order: Orders) -> list[dict]:
         book = self._get_book(order._stock)
         opposite_side = "sell" if order._type == "buy" else "buy"
         opposite_tree = book[opposite_side]
@@ -535,20 +530,23 @@ class OrderBookManager:
             # incoming order to fully resolve before telling the resting order's owner
             resting_order.status = (OrderStatus.FILLED if resting_order._quantity == 0
                                      else OrderStatus.PARTIALLY_FILLED)
-            self._notify(order, "fill", trade)
-            self._notify(resting_order, "fill", trade)
+            await self._notify(order, "fill", trade)
+            await self._notify(resting_order, "fill", trade)
 
-            if resting_order._quantity - order._quantity <= 0:
-                self._notify(resting_order, "completed", {"message": "Order completed"})
-
+            # FIX: the old condition `resting_order._quantity - order._quantity <= 0`
+            # compared the resting order's leftover to the *incoming* order's leftover,
+            # which doesn't mean "resting order is fully filled". Use the actual
+            # completion check (same one used just below to decide whether to pop it),
+            # and fire the notification before removing the order from the book.
             if resting_order._quantity == 0:
+                await self._notify(resting_order, "completed", {"message": "Order completed"})
                 level.queue.pop()
                 opposite_tree.unload_if_empty(level.key)
                 self._resting_index.pop(resting_order._id, None)
         return trades
 
     # ---- cancellation ----
-    def cancel(self, order_id: int) -> bool:
+    async def cancel(self, order_id: int) -> bool:
         entry = self._resting_index.pop(order_id, None)
         if entry is None:
             return False   # already filled, already cancelled, or never existed
@@ -556,22 +554,25 @@ class OrderBookManager:
         tree.cancel_order(entry["price"], entry["qnode"])
         order = entry["order"]
         order.status = OrderStatus.CANCELLED
-        self._notify(order, "cancelled", {"remaining_quantity": order._quantity})
+        await self._notify(order, "cancelled", {"remaining_quantity": order._quantity})
         return True
-
+ 
+    # FIX: these are named as read-only lookups ("best_bid"/"best_ask"), matching how
+    # _reference_price already reads the book with peek_best. The previous versions used
+    # pop_best, which mutates the tree by removing the top price level on every call --
+    # i.e. every read of "what's the best bid" was silently deleting it from the book.
     def best_bid(self, symbol: str):
         book = self.books.get(symbol)
         if not book:
             return None
-        return book["buy"].pop_best(best_is_min=False)   # highest buy price
-
+        return book["buy"].peek_best(best_is_min=False)   # highest buy price
+ 
     def best_ask(self, symbol: str):
         book = self.books.get(symbol)
         if not book:
             return None
-        return book["sell"].pop_best(best_is_min=True)    # lowest sell price
-
-
+        return book["sell"].peek_best(best_is_min=True)    # lowest sell price
+    
 class LinkedListNode[X]:
     """ generic linked list node """
     def __init__(self, val: X):

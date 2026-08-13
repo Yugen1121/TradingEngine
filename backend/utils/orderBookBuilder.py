@@ -5,11 +5,11 @@ def OrderBookBuilder(path) -> dict[str, dict[str, OrderTree]]:
 
     cur = db.cursor()
 
-    cur.execute("SELECT Name FROM stocks")
+    cur.execute("SELECT symbol, name FROM stocks")
 
     d = {}
     for row in cur.fetchall():
-        book = {"sell": OrderTree(), "buy": OrderTree()}
+        book = {"name": row[1], "sell": OrderTree(), "buy": OrderTree()}
         d[row[0]] = book
 
     return d

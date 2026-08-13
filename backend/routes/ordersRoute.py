@@ -6,7 +6,6 @@ class OrdersRoute:
         self._request_queue = RequestQueue()
         self._order_book: OrderBookManager = orderBook 
         self._request_handler = RequestHandler(orderBook, self._request_queue, {})
-        self._request_handler.start()
         self._next_id = 1
     # Map data into order object and push it to the request queue
     async def order_mapper(self, payload):
@@ -23,7 +22,7 @@ class OrdersRoute:
             except ValueError:
                 raise ValueError(f"invalid order_type: {raw_order_type!r}")
 
-            return Orders(1, 
+            return Orders(self.getNewId(), 
                           payload["user_id"], 
                           side,
                           payload["price"], 
@@ -43,3 +42,18 @@ class OrdersRoute:
         except Exception as e:
             response = {"status": "failed", "error": str(e)}
         return response
+
+    def order_handler(self, order: Orders):
+        if not isinstance(order, Orders):                
+            raise TypeError
+        self._request_queue.enqueue(order)
+        return True
+
+    def getNewId(self):
+        temp = self._next_id
+        self._next_id = self._next_id + 1
+        return temp
+
+    async def start(self):
+        """Call this once, from async code, after the event loop is running."""
+        self._request_handler.start()
