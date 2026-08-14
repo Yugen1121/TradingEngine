@@ -43,10 +43,46 @@ class Orders:
         self._price = price
         self._quantity = quantity          
         self.original_quantity = quantity  
-        self.order_type = order_type
+        self.order_type: OrderType= order_type
         self.status = OrderStatus.NEW
-        self.time = datetime.now()
+        self.time = str(datetime.now())
 
+    @staticmethod
+    def mapper(payload) -> Orders:
+        try:
+            order = Orders(
+                payload["id"],
+                payload["user_id"],
+                payload["type"],
+                payload["price"],
+                payload["stock"],
+                payload["quantity"],
+                payload["order_type"]
+            )
+            if "original_quantity" in payload:
+                order.original_quantity = payload["original_quantity"]
+            if "time" in payload:
+                order.time = payload["time"]
+            if "status" in payload:
+                order.status = payload["status"]
+            return Orders
+        except KeyError:
+            raise
+        
+    def get_dict_info(self) -> dict:
+        return {
+            "id": self._id,
+            "user_id": self._user_id,
+            "stock": self._stock,
+            "type": self._type,
+            "price": self._price,
+            "quantity": self._quantity,
+            "order_type": self.order_type.value,
+            "status": self.status.value,
+            "time": self.time,
+            "original_quantity": self.original_quantity
+        }
+        
     def __repr__(self):
         return (f"Order(id={self._id}, {self._type} {self._quantity} " +
                 f"{self.original_quantity}@{self._price}, {self.status.value}, {self.order_type})")
@@ -164,7 +200,6 @@ class TreeNode:
         self.height = 1
         self.subtree_qty = 0                # this level's queue total + left's + right's
 
-
 class OrderTree:
     """Self-balancing AVL tree of price levels (one side of the book: all buys or all sells)."""
 
@@ -272,10 +307,10 @@ class OrderTree:
             root.queue.append(qnode)
             self._recompute(root)
             return root
-
+    
         self._recompute(root)
         return self._rebalance(root, key)
-
+ 
     # ---- pop the oldest order at the best price, unloading the level if it empties ----
     def pop_best(self, best_is_min: bool) -> "tuple[float, OrderQueueNode] | None":
         """
@@ -290,24 +325,24 @@ class OrderTree:
         if node.queue.is_empty():
             self.delete(price)             # unload: remove empty price level from tree
         return price, qnode
-
+ 
     def _find_extreme(self, node: "TreeNode | None", go_left: bool) -> "TreeNode | None":
         if node is None:
             return None
         while (go_left and node.left) or (not go_left and node.right):
             node = node.left if go_left else node.right
         return node
-
+ 
     def peek_best(self, best_is_min: bool) -> "TreeNode | None":
         """Look at the best price level's node without popping an order or unloading it."""
         return self._find_extreme(self.root, go_left=best_is_min)
-
+ 
     def unload_if_empty(self, price: float) -> None:
         """Remove a price level from the tree if its queue has drained to empty."""
         node = self.find(price)
         if node is not None and node.queue.is_empty():
             self.delete(price)
-
+ 
     def cancel_order(self, price: float, qnode: OrderQueueNode) -> bool:
         """Remove one specific resting order from its price level (used by cancel-by-id)."""
         node = self.find(price)
@@ -317,7 +352,7 @@ class OrderTree:
         self.root = self._refresh_qty_path(self.root, price)
         self.unload_if_empty(price)
         return True
-
+ 
     def refresh_quantity(self, price: float) -> None:
         """
         Recompute cached subtree_qty aggregates along the path to `price`, without
@@ -325,7 +360,7 @@ class OrderTree:
         (a partial fill) but no node was inserted or removed.
         """
         self.root = self._refresh_qty_path(self.root, price)
-
+ 
     def _refresh_qty_path(self, node: "TreeNode | None", price: float) -> "TreeNode | None":
         if node is None:
             return None
@@ -336,7 +371,7 @@ class OrderTree:
         # else: price == node.key, this is the level whose queue just changed -- nothing to recurse into
         node.subtree_qty = node.queue.total_quantity() + self._qty(node.left) + self._qty(node.right)
         return node
-
+ 
     def matchable_quantity(self, order: Orders) -> int:
         """
         How much of `order` could trade right now against this tree, without
@@ -361,17 +396,17 @@ class OrderTree:
                     return self._qty(node.right) + node.queue.total_quantity() + walk(node.left)
                 else:
                     return walk(node.right)
-
+ 
         return walk(self.root)
-
+ 
     # ---- delete a price level entirely (used once its queue is empty) ----
     def delete(self, price: float) -> None:
         self.root = self._delete(self.root, price)
-
+ 
     def _delete(self, root: "TreeNode | None", key: float) -> "TreeNode | None":
         if not root:
             return root
-
+ 
         if key < root.key:
             root.left = self._delete(root.left, key)
         elif key > root.key:
@@ -383,7 +418,7 @@ class OrderTree:
             if root.right is None:
                 del self._node_by_price[root.key]
                 return root.left
-
+ 
             # Two children: we don't remove `root` -- we REPURPOSE it to hold the
             # successor's key/queue, then delete the successor node from the right
             # subtree. That means the dict needs two fixes, done AFTER the recursive
@@ -398,10 +433,10 @@ class OrderTree:
             root.right = self._delete(root.right, new_key)   # removes the old successor node + its dict entry
             del self._node_by_price[old_key]
             self._node_by_price[new_key] = root
-
+ 
         self._recompute(root)
         return self._rebalance_after_delete(root)
-
+ 
     def inorder(self, root: "TreeNode | None" = "__self__") -> list[float]:
         if root == "__self__":
             root = self.root
@@ -411,26 +446,64 @@ class OrderTree:
 
 class OrderBookManager:
     """Top-level registry: stock symbol -> {"buy": OrderTree, "sell": OrderTree}."""
+ 
     def __init__(self, book: dict[str, dict[str, OrderTree]]):
         self.books: dict[str, dict[str, OrderTree]] = book
         self.last_trade_price: dict[str, float] = {}
-        self._resting_index: dict[int, dict] = {}  # order_id -> {symbol, side, price, qnode, order}
+ 
+        self.user_order: dict[int, dict[int, OrderQueueNode]] = {}
+ 
         self._listeners = []                        # callbacks: fn(order, event, detail)
+ 
 
+        self._actions = []
+ 
+    # ---- event plumbing ----
     def on_event(self, callback) -> None:
         """Register a callback: callback(order, event: str, detail: dict) -> None.
         Fired synchronously the instant each fill/reject/cancel happens -- never batched."""
         self._listeners.append(callback)
-
+ 
     async def _notify(self, order: Orders, event: str, detail: dict) -> None:
         for cb in self._listeners:
             await cb(order, event, detail)
-
+ 
+    # ---- WAL action-callback plumbing ----
+    def set_actions(self, callbacks: list) -> None:
+        """Replace the full list of WAL action callbacks. Each callback is
+        fn(data: dict) -> None."""
+        self._actions = list(callbacks)
+ 
+    def add_action(self, callback) -> None:
+        """Register a single additional WAL action callback."""
+        self._actions.append(callback)
+ 
+    async def on_action(self, data: dict) -> None:
+        for cb in self._actions:
+            await cb(data)
+ 
     def _get_book(self, symbol: str) -> dict[str, OrderTree]:
         if symbol not in self.books:
             self.books[symbol] = {"buy": OrderTree(), "sell": OrderTree()}
         return self.books[symbol]
-
+ 
+    # ---- user_order index maintenance (single source of truth for this index) ----
+    def _register_user_order(self, user_id: int, order_id: int, qnode: OrderQueueNode) -> None:
+        self.user_order.setdefault(user_id, {})[order_id] = qnode
+ 
+    def _unregister_user_order(self, user_id: int, order_id: int) -> None:
+        bucket = self.user_order.get(user_id)
+        if bucket is not None:
+            bucket.pop(order_id, None)
+            if not bucket:
+                del self.user_order[user_id]   # don't leak empty dicts for users with no resting orders
+ 
+    def get_user_orders(self, user_id: int) -> list[Orders]:
+        bucket = self.user_order.get(user_id)
+        if not bucket:
+            return []
+        return [qnode._order for qnode in bucket.values()]
+ 
     # ---- reference price for the price-band check ----
     def _reference_price(self, symbol: str) -> "float | None":
         book = self.books.get(symbol)
@@ -462,53 +535,50 @@ class OrderBookManager:
                 order.status = OrderStatus.REJECTED
                 await self._notify(order, "rejected", {"reason": "fok_insufficient_liquidity"})
                 return []
-
+ 
         trades = await self._match(order)
         if order._quantity == 0:
             order.status = OrderStatus.FILLED
             await self._notify(order, "completed", {"messge": "Trade complete"})
             return trades
-
+ 
         # something is left unmatched
         if order.order_type == OrderType.GTC:
             order.status = OrderStatus.PARTIALLY_FILLED if trades else OrderStatus.NEW
             book = self._get_book(order._stock)
             tree = book[order._type]
             qnode = tree.add_order(order)
-            self._resting_index[order._id] = {
-                "symbol": order._stock, "side": order._type,
-                "price": order._price, "qnode": qnode, "order": order,
-            }
+            self._register_user_order(order._user_id, order._id, qnode)
         else:  # IOC (FOK never reaches here with leftover, since it's rejected up front)
             leftover = order._quantity
             order._quantity = 0
             order.status = OrderStatus.PARTIALLY_FILLED if trades else OrderStatus.CANCELLED
             await self._notify(order, "ioc_remainder_cancelled", {"cancelled_quantity": leftover})
         return trades
-
+ 
     async def _match(self, order: Orders) -> list[dict]:
         book = self._get_book(order._stock)
         opposite_side = "sell" if order._type == "buy" else "buy"
         opposite_tree = book[opposite_side]
         best_is_min = (order._type == "buy")
-
+ 
         trades = []
-
+ 
         while order._quantity > 0:
             level = opposite_tree.peek_best(best_is_min=best_is_min)
             if level is None:
                 break
-
+ 
             if order._type == "buy" and order._price < level.key:
                 break
             if order._type == "sell" and order._price > level.key:
                 break
-
+ 
             resting_qnode = level.queue.peek()
             if resting_qnode is None:
                 opposite_tree.unload_if_empty(level.key)
                 continue
-
+ 
             resting_order = resting_qnode._order
             fill_qty = min(order._quantity, resting_order._quantity)
             fill_price = level.key
@@ -520,16 +590,24 @@ class OrderBookManager:
             }
             trades.append(trade)
             self.last_trade_price[order._stock] = fill_price
-
+ 
             order._quantity -= fill_qty
             resting_order._quantity -= fill_qty
             level.queue.adjust_total(-fill_qty)
             opposite_tree.refresh_quantity(level.key)    # propagate the change up the tree
-
+ 
             # notify BOTH sides right now -- this fill is final, don't wait for the
             # incoming order to fully resolve before telling the resting order's owner
             resting_order.status = (OrderStatus.FILLED if resting_order._quantity == 0
                                      else OrderStatus.PARTIALLY_FILLED)
+            
+            order.status = (OrderStatus.FILLED if order._quantity == 0
+                             else OrderStatus.PARTIALLY_FILLED)
+
+            await self.on_action({"action": "traded", "data": trade})
+            await self.on_action({"action": "update", "data": order.get_dict_info()})
+            await self.on_action({"action": "update", "data": resting_order.get_dict_info()})
+ 
             await self._notify(order, "fill", trade)
             await self._notify(resting_order, "fill", trade)
 
@@ -542,25 +620,30 @@ class OrderBookManager:
                 await self._notify(resting_order, "completed", {"message": "Order completed"})
                 level.queue.pop()
                 opposite_tree.unload_if_empty(level.key)
-                self._resting_index.pop(resting_order._id, None)
+                self._unregister_user_order(resting_order._user_id, resting_order._id)
         return trades
-
+ 
     # ---- cancellation ----
-    async def cancel(self, order_id: int) -> bool:
-        entry = self._resting_index.pop(order_id, None)
-        if entry is None:
-            return False   # already filled, already cancelled, or never existed
-        tree = self.books[entry["symbol"]][entry["side"]]
-        tree.cancel_order(entry["price"], entry["qnode"])
-        order = entry["order"]
+    async def cancel(self, user_id: int, order_id: int) -> bool:
+        bucket = self.user_order.get(user_id)
+        if not bucket or order_id not in bucket:
+            return False   # not this user's order, already gone, or never existed
+ 
+        qnode = bucket.pop(order_id)
+        if not bucket:
+            del self.user_order[user_id]
+ 
+        order = qnode._order
+        tree = self.books[order._stock][order._type]
+        tree.cancel_order(order._price, qnode)
         order.status = OrderStatus.CANCELLED
+ 
+        await self.on_action({"action": "cancelled", "data": order.get_dict_info()})
         await self._notify(order, "cancelled", {"remaining_quantity": order._quantity})
         return True
  
-    # FIX: these are named as read-only lookups ("best_bid"/"best_ask"), matching how
-    # _reference_price already reads the book with peek_best. The previous versions used
-    # pop_best, which mutates the tree by removing the top price level on every call --
-    # i.e. every read of "what's the best bid" was silently deleting it from the book.
+    # Read-only lookups -- must use peek_best, never pop_best, or every read of
+    # "what's the best bid/ask" would silently delete it from the book.
     def best_bid(self, symbol: str):
         book = self.books.get(symbol)
         if not book:
