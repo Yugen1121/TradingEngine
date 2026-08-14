@@ -66,6 +66,23 @@ def buy(order: reqOrder, authorization: str = Header(...)):
 async def update():
     pass
 
-@router.delete("/")
-async def cancle():
-    pass
+@router.delete("/cancel")
+async def cancle(orderid: int, authorization: str = Header(...)):
+    try:
+        parts = authorization.strip().split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authorization header"
+            )
+        token = parts[1]
+        user_id = Authorization.check_token(token)
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Unauthorized request")
+        
+        x = await orderRoute.cancel_order(user_id, orderid)
+
+        return {"status": 205, "message": "order cancelled"}
+        
+    except Exception as e:
+        raise
