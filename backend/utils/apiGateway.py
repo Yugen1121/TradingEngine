@@ -1,3 +1,4 @@
+from wal.OrderWalWriter import OrderWalWriter
 from Models.model import OrderTree, OrderBookManager, Orders
 from fastapi import WebSocket, WebSocketDisconnect
 import json
@@ -31,6 +32,7 @@ class APIGateway:
         self._route.update(extra_routes)
 
         self._order_book_manager.on_event(self._gateway_dispatch)
+        self._order_book_manager.add_action(self.handle_action)
 
     async def printD(self, payload):
         return {
@@ -93,6 +95,9 @@ class APIGateway:
                 order._user_id,
                 ws
             )
+
+    async def handle_action(self, action: dict):
+        OrderWalWriter.insert_line(action)
 
     async def handle_client(
         self,

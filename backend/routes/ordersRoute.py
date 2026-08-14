@@ -1,5 +1,6 @@
 from Models.model import Orders, RequestQueueNode, RequestQueue, OrderBookManager, OrderType
 from utils.requestHandler import RequestHandler
+from wal.OrderWalWriter import OrderWalWriter
 class OrdersRoute:
     """ Responsible for packaging and queuing the request """
     def __init__(self, orderBook: OrderBookManager):
@@ -47,6 +48,11 @@ class OrdersRoute:
         if not isinstance(order, Orders):                
             raise TypeError
         self._request_queue.enqueue(order)
+        OrderWalWriter.insert(order)
+        return True
+
+    async def cancel_order(self, user_id: int, order_id: int):
+        await self._order_book.cancel(user_id, order_id)
         return True
 
     def getNewId(self):
