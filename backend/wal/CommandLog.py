@@ -3,8 +3,8 @@ from contextlib import contextmanager
 from Models.model import Orders
 from functools import wraps
 
-class OrderWalWriter:
-    def __init__(self, filename: str = "order_wal_1.jsonl"):
+class CommandLogWriter:
+    def __init__(self, filename: str = "commandlog_1.jsonl"):
         self.filename = filename
         self.f = open(self.filename, "a")
         
@@ -29,18 +29,6 @@ class OrderWalWriter:
         self.f.write("\n")
         self.f.flush()
 
-    async def update(self, order: Orders):
-        orderData = order.get_dict_info()
-        print("update")
-        data = {
-            "action": "updated",
-            "data": orderData
-        }
-
-        json.dump(data, self.f)
-        self.f.write("\n")
-        self.f.flush()
-
     async def write(self, action: str, order: Orders):
         if action == "cancelled":
             await self.cancel(order)
@@ -48,12 +36,6 @@ class OrderWalWriter:
         elif action == "insert":
             await self.insert(order)
 
-        elif action == "updated":
-            await self.update(order)
-
         else:
             return False
         return True
-
-    def close(self):
-        self.f.close()

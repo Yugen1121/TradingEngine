@@ -50,6 +50,8 @@ class Orders:
     @staticmethod
     def mapper(payload) -> Orders:
         try:
+            order_type = OrderType(payload["order_type"])
+            status = OrderStatus(payload["status"])
             order = Orders(
                 payload["id"],
                 payload["user_id"],
@@ -57,7 +59,7 @@ class Orders:
                 payload["price"],
                 payload["stock"],
                 payload["quantity"],
-                payload["order_type"]
+                order_type
             )
             if "original_quantity" in payload:
                 order.original_quantity = payload["original_quantity"]
@@ -65,7 +67,7 @@ class Orders:
                 order.time = payload["time"]
             if "status" in payload:
                 order.status = payload["status"]
-            return Orders
+            return order
         except KeyError:
             raise
         
@@ -85,7 +87,7 @@ class Orders:
         
     def __repr__(self):
         return (f"Order(id={self._id}, {self._type} {self._quantity} " +
-                f"{self.original_quantity}@{self._price}, {self.status.value}, {self.order_type})")
+                f"{self.original_quantity}@{self._price}, {self.status}, {self.order_type})")
 
 
 class OrderQueueNode:
@@ -478,9 +480,15 @@ class OrderBookManager:
         """Register a single additional WAL action callback."""
         self._actions.append(callback)
  
-    async def on_action(self, data: dict) -> None:
+    async def on_action(self, action: str, order: Orders) -> None:
         for cb in self._actions:
-            await cb(data)
+            try:
+                result = await cb(action, order)
+                if not result:
+                    print("invalid action")
+            except Exception as e:
+                print(e)
+
  
     def _get_book(self, symbol: str) -> dict[str, OrderTree]:
         if symbol not in self.books:
@@ -535,8 +543,10 @@ class OrderBookManager:
                 order.status = OrderStatus.REJECTED
                 await self._notify(order, "rejected", {"reason": "fok_insufficient_liquidity"})
                 return []
- 
-        trades = await self._match(order)
+        try:
+            trades = await self._match(order)
+        except Exception as e:
+            print(e)
         if order._quantity == 0:
             order.status = OrderStatus.FILLED
             await self._notify(order, "completed", {"messge": "Trade complete"})
@@ -603,10 +613,9 @@ class OrderBookManager:
             
             order.status = (OrderStatus.FILLED if order._quantity == 0
                              else OrderStatus.PARTIALLY_FILLED)
-
-            await self.on_action({"action": "traded", "data": trade})
-            await self.on_action({"action": "update", "data": order.get_dict_info()})
-            await self.on_action({"action": "update", "data": resting_order.get_dict_info()})
+            await self.on_action("traded", trade)
+            await self.on_action("updated", order)
+            await self.on_action("updated", resting_order)
  
             await self._notify(order, "fill", trade)
             await self._notify(resting_order, "fill", trade)
@@ -638,9 +647,9 @@ class OrderBookManager:
         tree.cancel_order(order._price, qnode)
         order.status = OrderStatus.CANCELLED
  
-        await self.on_action({"action": "cancelled", "data": order.get_dict_info()})
+        await self.on_action("cancelled", order)
         await self._notify(order, "cancelled", {"remaining_quantity": order._quantity})
-        return True
+        return order
  
     # Read-only lookups -- must use peek_best, never pop_best, or every read of
     # "what's the best bid/ask" would silently delete it from the book.

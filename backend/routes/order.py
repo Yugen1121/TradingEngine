@@ -7,7 +7,7 @@ router = APIRouter(prefix="/order")
 
 
 @router.post("/sell")
-def sell(order: reqOrder, authorization: str = Header(...)):
+async def sell(order: reqOrder, authorization: str = Header(...)):
     try:
         parts = authorization.strip().split()
         if len(parts) != 2 or parts[0].lower() != "bearer":
@@ -19,7 +19,6 @@ def sell(order: reqOrder, authorization: str = Header(...)):
         user_id = Authorization.check_token(token)
         if user_id is None:
             raise HTTPException(status_code=401, detail="Unauthorized request")
-
         new_order = Orders(
             id=orderRoute.getNewId(),
             user_id=user_id,
@@ -29,13 +28,13 @@ def sell(order: reqOrder, authorization: str = Header(...)):
             quantity=order.quantity,
             stock=order.symbol
         )
-        orderRoute.order_handler(new_order)
-        
+        await orderRoute.order_handler(new_order)
+        return {"status": 205, "message": "order received"}
     except Exception as e:
-        raise
+        return {"error": 400, "error": str(e)}
 
 @router.post("/buy")
-def buy(order: reqOrder, authorization: str = Header(...)):
+async def buy(order: reqOrder, authorization: str = Header(...)):
     try:
         parts = authorization.strip().split()
         if len(parts) != 2 or parts[0].lower() != "bearer":
@@ -57,10 +56,11 @@ def buy(order: reqOrder, authorization: str = Header(...)):
             quantity=order.quantity,
             stock=order.symbol
         )
-        orderRoute.order_handler(new_order)
+        await orderRoute.order_handler(new_order)
+        return {"status": 205, "message": "order received"}
         
     except Exception as e:
-        raise
+        return {"status": 400, "error": str(e)}
 
 @router.put("/")
 async def update():
@@ -85,4 +85,4 @@ async def cancle(orderid: int, authorization: str = Header(...)):
         return {"status": 205, "message": "order cancelled"}
         
     except Exception as e:
-        raise
+        return {"status": 400, "error": str(e)}

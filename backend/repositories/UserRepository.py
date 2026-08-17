@@ -16,7 +16,6 @@ class UserRepository():
         try:
             new_user = User(email=email, password=password)
             db.add(new_user)
-            print(new_user)
             await db.commit()
             return True
         except IntegrityError:

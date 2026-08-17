@@ -18,6 +18,7 @@ class APIGateway:
         order_book: OrderTree,
         orderBookManager: OrderBookManager,
         extra_routes: dict[str, callable],
+        wal_log: OrderWalWriter
     ):
         self._order_book: dict[str, dict[str, OrderTree]] = order_book
         self._order_book_manager: OrderBookManager = orderBookManager
@@ -29,6 +30,8 @@ class APIGateway:
             "/": self.printD
         }
 
+        self.wal = wal_log
+
         self._route.update(extra_routes)
 
         self._order_book_manager.on_event(self._gateway_dispatch)
@@ -39,6 +42,7 @@ class APIGateway:
             "status": "success",
             "books": json.dumps([(i, self._order_book[i].get("name", "")) for i in self._order_book])
         }
+
 
     def _register_user(
         self,
@@ -96,8 +100,8 @@ class APIGateway:
                 ws
             )
 
-    async def handle_action(self, action: dict):
-        OrderWalWriter.insert_line(action)
+    async def handle_action(self, action: str, order: Orders):
+        await self.wal.write(action, order)
 
     async def handle_client(
         self,

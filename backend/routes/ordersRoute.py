@@ -1,14 +1,23 @@
 from Models.model import Orders, RequestQueueNode, RequestQueue, OrderBookManager, OrderType
 from utils.requestHandler import RequestHandler
 from wal.OrderWalWriter import OrderWalWriter
+from wal.CommandLog import CommandLogWriter
+
 class OrdersRoute:
     """ Responsible for packaging and queuing the request """
-    def __init__(self, orderBook: OrderBookManager):
+    def __init__(self, orderBook: OrderBookManager, wal_writer: OrderWalWriter, commandLogWriter: CommandLogWriter):
         self._request_queue = RequestQueue()
         self._order_book: OrderBookManager = orderBook 
         self._request_handler = RequestHandler(orderBook, self._request_queue, {})
+        self.wal_writer: OrderWalWriter = wal_writer
+        self.command_log_writer: CommandLogWriter = commandLogWriter
         self._next_id = 1
+        self._record = []
     # Map data into order object and push it to the request queue
+    async def recod(self, line):
+        for cb in self._record:
+            await cb(line)
+            
     async def order_mapper(self, payload):
         # map the payload into an order
         # return the order
@@ -44,16 +53,25 @@ class OrdersRoute:
             response = {"status": "failed", "error": str(e)}
         return response
 
-    def order_handler(self, order: Orders):
+    async def order_handler(self, order: Orders):
         if not isinstance(order, Orders):                
             raise TypeError
         self._request_queue.enqueue(order)
-        OrderWalWriter.insert(order)
-        return True
+        await self.command_log_writer.insert(order)
+        await self.wal_writer.insert(order)
+        return order
 
     async def cancel_order(self, user_id: int, order_id: int):
-        await self._order_book.cancel(user_id, order_id)
-        return True
+        print(user_id, order_id)
+        try:
+            order: Orders = await self._order_book.cancel(user_id, order_id)
+            if order:
+                await self.command_log_writer.cancel(order)
+                return True
+            else:
+                raise KeyError
+        except Exception as e:
+            raise e
 
     def getNewId(self):
         temp = self._next_id

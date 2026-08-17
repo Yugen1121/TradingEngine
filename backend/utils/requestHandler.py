@@ -17,9 +17,13 @@ class RequestHandler:
         while self.running:
             order = self._request_queue.dequeue()
             if order:
-                await self._order_book.submit(order)
-                print(self._order_book.books[order._stock][order._type].inorder(self._order_book.books[order._stock][order._type].root))
-                self.requests_processed += 1
+                try:
+                    await self._order_book.submit(order)
+                    print(self._order_book.books[order._stock][order._type].inorder(self._order_book.books[order._stock][order._type].root))
+                    self.requests_processed += 1
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
             else:
                 await asyncio.sleep(0.001)
 
